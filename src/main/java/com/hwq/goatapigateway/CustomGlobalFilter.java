@@ -31,6 +31,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+
+import static com.hwq.constant.SignKeyConstant.SIGN_KEY;
+
 
 @Slf4j
 @Component
@@ -88,18 +92,19 @@ public class CustomGlobalFilter implements GlobalFilter, Ordered {
         if (invokeUser == null) {
             return handleNoAuth(response);
         }
-//        if (Long.parseLong(nonce) > 10000L) {
-//            return handleNoAuth(response);
-//        }
+
         // 时间和当前时间不能超过 5 分钟
-        Long currentTime = System.currentTimeMillis() / 1000;
-        final Long FIVE_MINUTES = 60 * 5L;
+        long currentTime = System.currentTimeMillis() / 1000;
+        final long FIVE_MINUTES = 60 * 5L;
         if ((currentTime - Long.parseLong(timestamp)) >= FIVE_MINUTES) {
             return handleNoAuth(response);
         }
 
         // 校验nonce, 判断是否是重放攻击
-//        redisTemplate.hasKey()
+        boolean nonceExisted = Boolean.TRUE.equals(redisTemplate.hasKey(SIGN_KEY + nonce + timestamp));
+        if (nonceExisted) {
+            return handleNoAuth(response);
+        }
         // 实际情况中是从数据库中查出 secretKey
         String secretKey = invokeUser.getSecretKey();
         String serverSign = SignUtil.getSign(body, secretKey);
@@ -123,6 +128,9 @@ public class CustomGlobalFilter implements GlobalFilter, Ordered {
         if (!hasInvokeNum) { // 没有调用次数
             return handleNoAuth(response);
         }
+
+        // 将nonce存入redis, 设置超时时间为5min
+        redisTemplate.opsForValue().set(SIGN_KEY + nonce + timestamp, nonce, FIVE_MINUTES, TimeUnit.SECONDS);
         // 5. 请求转发，调用模拟接口 + 响应日志
         //        Mono<Void> filter = chain.filter(exchange);
         //        return filter;
